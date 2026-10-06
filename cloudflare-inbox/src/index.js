@@ -13,6 +13,9 @@
 // {".sv":"timestamp"} ถูกแทนด้วยเวลาของเซิร์ฟเวอร์เหมือน Firebase
 // แต่ละ Inbox Key ได้ Durable Object ของตัวเอง (ข้อมูลแยกกันขาด) ต้องยาว ≥ 32 ตัว เหมือนกฎ Firebase เดิม
 
+import { routeCatalog } from './catalog.js';
+export { Catalog } from './catalog.js';
+
 const KEY_PATH_RE = /^\/pos_hero_inbox\/([A-Za-z0-9_-]{32,128})\/(events|heartbeat)\.json$/;
 const MAX_BODY = 16 * 1024;
 const MAX_EVENTS = 5000;                       // กันใครยิงสแปมจนพื้นที่เต็ม
@@ -29,6 +32,7 @@ const fbError = (status, msg) => json({ error: msg }, status);
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/catalog/')) return routeCatalog(request, env, url); // กระเป๋าสินค้า (src/catalog.js) ต้องมาก่อนเช็ก inbox
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: {
         'Access-Control-Allow-Origin': '*',

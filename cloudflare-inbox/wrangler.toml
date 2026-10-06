@@ -10,3 +10,17 @@ class_name = "Inbox"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Inbox"]
+
+# กระเป๋าสินค้า (Catalog Hero) — Durable Object แยกจาก Inbox
+[[durable_objects.bindings]]
+name = "CATALOG"
+class_name = "Catalog"
+
+# เก็บรูปสินค้า ต้องเปิด R2 ในบัญชี Cloudflare และสร้าง bucket ก่อน deploy (ดู docs/cloudflare-setup.md)
+[[r2_buckets]]
+binding = "CATALOG_IMAGES"
+bucket_name = "pos-hero-catalog"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Catalog"]
