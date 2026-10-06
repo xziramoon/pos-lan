@@ -14,7 +14,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "release": "electron-builder --publish always"
+    "release": "electron-builder --publish always",
+    "test": "node test/merge.test.js"
   },
   "devDependencies": {
     "electron": "^32.0.0",
