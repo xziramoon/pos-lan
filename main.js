@@ -7,7 +7,8 @@ const http = require('http');
 const crypto = require('crypto');
 const dgram = require('dgram');
 const { execFile } = require('child_process');
-const fortuneModule = require('./fortune/fortune-main');
+let fortuneModule = null;
+try { fortuneModule = require('./fortune/fortune-main'); } catch (err) { console.error('fortune module missing:', err); } // เซียมซีพังต้องไม่ทำให้ POS Hero เปิดไม่ขึ้น
 
 app.setAppUserModelId('com.xziramoon.poshero');
 
@@ -304,6 +305,7 @@ function exitMiniMode() {
 
 function startFortune() {
   try {
+    if (!fortuneModule) return;
     fortune = fortuneModule.create({
       app, BrowserWindow, ipcMain, Notification,
       buildEscPosRaster,
