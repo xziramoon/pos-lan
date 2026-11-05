@@ -17,14 +17,16 @@
 const LV={ '上':'上签 · ดี','中':'中签 · กลาง','下':'下签 · รอจังหวะ' };
 function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 // f = [ระดับ, "กลอน\nกลอน", "ความหมาย", "การเงิน"], n = เลขใบ (1-100)
-function render(f, n, footer){
+function render(f, n, footer, opts){
+  opts = opts || {zh:true, th:true};
   const lines=f[1].split('\n').flatMap(l=>l.split('，'));
   document.getElementById('slip').innerHTML =
     '<div class="cut">- - - - - - - - - - - - - -</div>'+
     '<div class="title">เซียมซีเจ้าแม่กวนอิม</div>'+
     '<div class="lvl">ใบที่ '+n+' · '+(LV[f[0]]||'')+'</div>'+
-    '<div class="poem">'+lines.map(esc).join('<br>')+'</div>'+
-    '<div class="meaning">ความหมาย: '+esc(f[2])+'</div>'+
+    (opts.zh?'<div class="poem">'+lines.map(esc).join('<br>')+'</div>':'')+
+    (opts.th?'<div class="meaning">แปลกลอน: '+esc(f[4]||'')+'</div>':'')+
+    '<div class="meaning">สรุปง่ายๆ: '+esc(f[2])+'</div>'+
     '<div class="fin">การเงิน: '+esc(f[3])+'</div>'+
     (footer?'<div class="foot">'+esc(footer)+'</div>':'');
   return document.getElementById('slip').getBoundingClientRect().height;

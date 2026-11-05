@@ -318,6 +318,7 @@ function startFortune() {
       onStatsChange: () => refreshTrayMenu()
     });
     fortune.start();
+    ipcMain.on('fortune:open', () => { try { fortune && fortune.openSettings(); } catch (e) { console.error(e); } });
     refreshTrayMenu();
   } catch (err) {
     // บั๊กในโมดูลเซียมซีต้องไม่กระทบ POS Hero

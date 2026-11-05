@@ -1,7 +1,7 @@
 {
   "name": "taskbar-pos-hero",
   "productName": "POS Hero",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Thai POS reconciliation tool, reskinned as a taskbar-docked hero widget (inspired by TBH: Task Bar Hero)",
   "main": "main.js",
   "author": "xziramoon",

@@ -17,7 +17,9 @@
 <div class="card">
   <label class="row"><input type="checkbox" id="enabled"><div>เปิดโหมดโปรแกรมตัดกระดาษเอง<small>ต้องตั้งไดรเวอร์ TM-T82III เป็น Paper Cut = No Cut ก่อน ปิดสวิตช์นี้แล้วให้ตั้งกลับเป็น Cut</small></div></label>
   <label class="row"><input type="checkbox" id="slipEnabled"><div>พิมพ์เซียมซีต่อท้ายใบเสร็จ<small>ปิด = ตัดกระดาษอย่างเดียว</small></div></label>
-  <label class="row"><input type="checkbox" id="includeLow"><div>รวมใบ 下签 (ครบ 100 ใบ)<small>ปิด = สุ่มจาก 83 ใบ</small></div></label>
+  <label class="row"><input type="checkbox" id="excludeLow"><div>คัดใบโชคร้ายออก (下签 17 ใบ)<small>เปิด = สุ่มจาก 83 ใบที่ดีและกลางๆ · ปิด = ครบ 100 ใบ</small></div></label>
+  <label class="row"><input type="checkbox" id="showChinese"><div>พิมพ์กลอนจีน<small>ปิด = ไม่พิมพ์ตัวอักษรจีน</small></div></label>
+  <label class="row"><input type="checkbox" id="showThaiPoem"><div>พิมพ์คำแปลกลอนเป็นไทย<small>ปิดทั้งกลอนจีนและคำแปล = พิมพ์แค่สรุปง่ายๆ กับการเงิน</small></div></label>
   <label class="row"><input type="checkbox" id="recordOnly"><div>โหมดบันทึกอย่างเดียว (ขั้น 0)<small>จดชื่อเอกสารงานพิมพ์ลง print-jobs.log ไม่พิมพ์ ไม่ตัด</small></div></label>
 </div>
 <div class="card">
@@ -30,17 +32,17 @@
 <div id="msg"></div>
 <script>
 const $=(id)=>document.getElementById(id);
-const BOOL=['enabled','slipEnabled','includeLow','recordOnly'],TXT=['docFilter','startDate','endDate','footer'];
+const BOOL=['enabled','slipEnabled','showChinese','showThaiPoem','recordOnly'],TXT=['docFilter','startDate','endDate','footer'];
 async function load(){
   const [{settings:s,today,total,cached},printers]=await Promise.all([fortuneApi.get(),fortuneApi.printers()]);
   $('stat').textContent='วันนี้พิมพ์แล้ว '+today+' ใบ · ข้อมูล '+total+' ใบ · เรนเดอร์ไว้แล้ว '+cached;
-  BOOL.forEach(k=>$(k).checked=!!s[k]); TXT.forEach(k=>$(k).value=s[k]||'');
+  BOOL.forEach(k=>$(k).checked=!!s[k]); $('excludeLow').checked=!s.includeLow; TXT.forEach(k=>$(k).value=s[k]||'');
   const sel=$('printerName'); sel.innerHTML='';
   const names=[''].concat(printers); if(s.printerName&&!printers.includes(s.printerName)) names.push(s.printerName);
   names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n||'(เครื่อง default ของ Windows)';sel.appendChild(o)});
   sel.value=s.printerName||'';
 }
-function collect(){const p={printerName:$('printerName').value};BOOL.forEach(k=>p[k]=$(k).checked);TXT.forEach(k=>p[k]=$(k).value);return p}
+function collect(){const p={printerName:$('printerName').value,includeLow:!$('excludeLow').checked};BOOL.forEach(k=>p[k]=$(k).checked);TXT.forEach(k=>p[k]=$(k).value);return p}
 $('save').onclick=async()=>{await fortuneApi.set(collect());$('msg').textContent='บันทึกแล้ว';load()};
 $('test').onclick=async()=>{$('test').disabled=true;$('msg').textContent='กำลังพิมพ์…';await fortuneApi.set(collect());
   const r=await fortuneApi.test();$('msg').textContent=r.success?'ส่งเข้าเครื่องพิมพ์แล้ว':'ไม่สำเร็จ: '+r.reason;$('test').disabled=false;load()};

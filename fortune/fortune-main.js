@@ -17,7 +17,9 @@ const DEFAULTS = {
   enabled: false,        // เปิดโหมด "โปรแกรมตัดกระดาษเอง" (ไดรเวอร์ต้องตั้ง No Cut) — ปิด = ไม่เฝ้าคิว ไม่ส่งอะไรเลย
   recordOnly: false,     // ขั้น 0: บันทึกงานพิมพ์ลง print-jobs.log อย่างเดียว ไม่พิมพ์/ไม่ตัด
   slipEnabled: true,     // พิมพ์เซียมซี (ปิด = ตัดกระดาษอย่างเดียว)
-  includeLow: true,      // รวมใบ 下签 ครบ 100 ใบ (ปิด = สุ่มจาก 83 ใบ)
+  includeLow: true,
+  showChinese: true,     // พิมพ์กลอนจีน
+  showThaiPoem: true,    // พิมพ์คำแปลกลอนเป็นไทย (ปิดทั้งสองอัน = พิมพ์แค่สรุปความหมาย)      // รวมใบ 下签 ครบ 100 ใบ (ปิด = สุ่มจาก 83 ใบ)
   printerName: '',       // ว่าง = เครื่องพิมพ์ default ของ Windows
   docFilter: 'Sea & Hill', // ชื่อเอกสารที่มีข้อความนี้ = ใบเสร็จที่ได้เซียมซี (ไม่สนตัวพิมพ์เล็กใหญ่)
   startDate: '',         // YYYY-MM-DD ว่าง = ไม่จำกัด
@@ -103,7 +105,7 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
       if (slipCache.has(index)) return slipCache.get(index);
       const win = await ensureRenderWin();
       const wc = win.webContents;
-      const h = await wc.executeJavaScript(`render(${JSON.stringify(fortunes[index])}, ${index + 1}, ${JSON.stringify(settings.footer)})`);
+      const h = await wc.executeJavaScript(`render(${JSON.stringify(fortunes[index])}, ${index + 1}, ${JSON.stringify(settings.footer)}, ${JSON.stringify({ zh: settings.showChinese, th: settings.showThaiPoem })})`);
       const height = Math.max(40, Math.ceil(h) + 2);
       win.setContentSize(SLIP_WIDTH, height);
       await new Promise((r) => setTimeout(r, 30)); // ให้เลย์เอาต์ใหม่เสร็จก่อนจับภาพ
@@ -273,14 +275,14 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
   function registerIpc() {
     ipcMain.handle('fortune:get', () => ({ settings, today: todayCount(), total: fortunes.length, cached: slipCache.size }));
     ipcMain.handle('fortune:set', (_e, patch) => {
-      const prevLow = settings.includeLow, prevFooter = settings.footer;
+      const prevLow = settings.includeLow, prevFooter = settings.footer, prevLook = `${settings.showChinese}${settings.showThaiPoem}`;
       const next = { ...settings };
       for (const k of Object.keys(DEFAULTS)) {
         if (patch && k in patch && typeof patch[k] === typeof DEFAULTS[k]) next[k] = patch[k];
       }
       settings = next;
       saveJson(settingsPath, settings);
-      if (settings.footer !== prevFooter) slipCache.clear();
+      if (settings.footer !== prevFooter || `${settings.showChinese}${settings.showThaiPoem}` !== prevLook) { slipCache.clear(); if (settings.enabled && settings.slipEnabled) setTimeout(() => prerenderAll().catch(() => {}), 500); }
       if (settings.includeLow && !prevLow) prerenderAll().catch(() => {});
       applyMode();
       try { if (onStatsChange) onStatsChange(); } catch (e) { /* ignore */ }
