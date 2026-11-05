@@ -34,10 +34,12 @@
       "renderer/**/*",
       "build/icon.ico",
       "build/tray.png",
-      "build/raw-print.ps1"
+      "build/raw-print.ps1",
+      "fortune/**/*"
     ],
     "asarUnpack": [
-      "build/raw-print.ps1"
+      "build/raw-print.ps1",
+      "fortune/job-watcher.ps1"
     ],
     "publish": {
       "provider": "github",

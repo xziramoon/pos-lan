@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8">
+<style>
+  html,body{margin:0;padding:0;background:#fff;color:#000}
+  body{width:576px;font-family:'Sarabun','Leelawadee UI','Tahoma',sans-serif;font-weight:700;text-align:center;-webkit-font-smoothing:none}
+  #slip{padding:10px 16px 12px;box-sizing:border-box}
+  .cut{font-size:20px;letter-spacing:6px;white-space:nowrap;overflow:hidden;margin-bottom:6px}
+  .title{font-size:30px;line-height:1.25}
+  .lvl{font-size:26px;line-height:1.3;margin:2px 0 6px}
+  .poem{font-family:'Microsoft YaHei','SimSun','MS Gothic',sans-serif;font-size:34px;line-height:1.35;letter-spacing:3px}
+  .meaning{font-size:23px;line-height:1.35;text-align:left;margin-top:8px}
+  .fin{font-size:23px;line-height:1.35;text-align:left;margin-top:2px}
+  .foot{font-size:22px;margin-top:8px}
+</style></head>
+<body><div id="slip"></div>
+<script>
+const LV={ '上':'上签 · ดี','中':'中签 · กลาง','下':'下签 · รอจังหวะ' };
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+// f = [ระดับ, "กลอน\nกลอน", "ความหมาย", "การเงิน"], n = เลขใบ (1-100)
+function render(f, n, footer){
+  const lines=f[1].split('\n').flatMap(l=>l.split('，'));
+  document.getElementById('slip').innerHTML =
+    '<div class="cut">- - - - - - - - - - - - - -</div>'+
+    '<div class="title">เซียมซีเจ้าแม่กวนอิม</div>'+
+    '<div class="lvl">ใบที่ '+n+' · '+(LV[f[0]]||'')+'</div>'+
+    '<div class="poem">'+lines.map(esc).join('<br>')+'</div>'+
+    '<div class="meaning">ความหมาย: '+esc(f[2])+'</div>'+
+    '<div class="fin">การเงิน: '+esc(f[3])+'</div>'+
+    (footer?'<div class="foot">'+esc(footer)+'</div>':'');
+  return document.getElementById('slip').getBoundingClientRect().height;
+}
+</script></body></html>

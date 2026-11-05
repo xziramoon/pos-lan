@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><title>ตั้งค่าเซียมซี</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  body{font-family:'Leelawadee UI','Tahoma',sans-serif;margin:0;padding:16px;background:#f8fafc;color:#0f172a;font-size:15px}
+  h1{font-size:20px;margin:0 0 4px}.sub{color:#64748b;font-size:13px;margin-bottom:14px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:12px}
+  label.row{display:flex;gap:8px;align-items:flex-start;margin:6px 0;cursor:pointer}
+  label.row small{display:block;color:#64748b}
+  .f{display:flex;flex-direction:column;gap:3px;margin:8px 0}.f span{font-size:13px;color:#475569}
+  input[type=text],input[type=date],select{padding:8px;border:1px solid #cbd5e1;border-radius:6px;font:inherit}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  button{padding:10px 14px;border:0;border-radius:8px;background:#0f766e;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5}#msg{margin-top:8px;font-size:13px;min-height:18px}
+</style></head><body>
+<h1>🥠 เซียมซีต่อท้ายใบเสร็จ</h1><div class="sub" id="stat">กำลังโหลด…</div>
+<div class="card">
+  <label class="row"><input type="checkbox" id="enabled"><div>เปิดโหมดโปรแกรมตัดกระดาษเอง<small>ต้องตั้งไดรเวอร์ TM-T82III เป็น Paper Cut = No Cut ก่อน ปิดสวิตช์นี้แล้วให้ตั้งกลับเป็น Cut</small></div></label>
+  <label class="row"><input type="checkbox" id="slipEnabled"><div>พิมพ์เซียมซีต่อท้ายใบเสร็จ<small>ปิด = ตัดกระดาษอย่างเดียว</small></div></label>
+  <label class="row"><input type="checkbox" id="includeLow"><div>รวมใบ 下签 (ครบ 100 ใบ)<small>ปิด = สุ่มจาก 83 ใบ</small></div></label>
+  <label class="row"><input type="checkbox" id="recordOnly"><div>โหมดบันทึกอย่างเดียว (ขั้น 0)<small>จดชื่อเอกสารงานพิมพ์ลง print-jobs.log ไม่พิมพ์ ไม่ตัด</small></div></label>
+</div>
+<div class="card">
+  <div class="f"><span>เครื่องพิมพ์</span><select id="printerName"></select></div>
+  <div class="f"><span>ตัวกรองชื่อเอกสารใบเสร็จที่จะได้เซียมซี</span><input type="text" id="docFilter"></div>
+  <div class="two"><div class="f"><span>วันเริ่ม</span><input type="date" id="startDate"></div><div class="f"><span>วันจบ</span><input type="date" id="endDate"></div></div>
+  <div class="f"><span>บรรทัดท้ายใบ</span><input type="text" id="footer"></div>
+</div>
+<div style="display:flex;gap:8px"><button id="save">บันทึก</button><button id="test" style="background:#475569">ทดลองพิมพ์เซียมซี</button></div>
+<div id="msg"></div>
+<script>
+const $=(id)=>document.getElementById(id);
+const BOOL=['enabled','slipEnabled','includeLow','recordOnly'],TXT=['docFilter','startDate','endDate','footer'];
+async function load(){
+  const [{settings:s,today,total,cached},printers]=await Promise.all([fortuneApi.get(),fortuneApi.printers()]);
+  $('stat').textContent='วันนี้พิมพ์แล้ว '+today+' ใบ · ข้อมูล '+total+' ใบ · เรนเดอร์ไว้แล้ว '+cached;
+  BOOL.forEach(k=>$(k).checked=!!s[k]); TXT.forEach(k=>$(k).value=s[k]||'');
+  const sel=$('printerName'); sel.innerHTML='';
+  const names=[''].concat(printers); if(s.printerName&&!printers.includes(s.printerName)) names.push(s.printerName);
+  names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n||'(เครื่อง default ของ Windows)';sel.appendChild(o)});
+  sel.value=s.printerName||'';
+}
+function collect(){const p={printerName:$('printerName').value};BOOL.forEach(k=>p[k]=$(k).checked);TXT.forEach(k=>p[k]=$(k).value);return p}
+$('save').onclick=async()=>{await fortuneApi.set(collect());$('msg').textContent='บันทึกแล้ว';load()};
+$('test').onclick=async()=>{$('test').disabled=true;$('msg').textContent='กำลังพิมพ์…';await fortuneApi.set(collect());
+  const r=await fortuneApi.test();$('msg').textContent=r.success?'ส่งเข้าเครื่องพิมพ์แล้ว':'ไม่สำเร็จ: '+r.reason;$('test').disabled=false;load()};
+load();
+</script></body></html>

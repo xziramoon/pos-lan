@@ -7,6 +7,7 @@ const http = require('http');
 const crypto = require('crypto');
 const dgram = require('dgram');
 const { execFile } = require('child_process');
+const fortuneModule = require('./fortune/fortune-main');
 
 app.setAppUserModelId('com.xziramoon.poshero');
 
@@ -28,6 +29,7 @@ const COLLAPSE_MS = 230;
 
 let mainWindow = null;
 let tray = null;
+let fortune = null; // เซียมซีต่อท้ายใบเสร็จ (fortune/) — สร้างหลัง app ready
 let isPinned = true;
 let isQuitting = false;
 let isMiniMode = false;
@@ -194,6 +196,7 @@ function refreshTrayMenu() {
     { label: '↩️ กลับไปมุมจอ', click: () => dockToCorner() },
     { type: 'separator' },
     { label: '📱 ข้อมูลเชื่อมต่อมือถือ (IP/Token)', click: () => showRelayInfoDialog() },
+    { label: fortune ? `🥠 ตั้งค่าเซียมซี (วันนี้ ${fortune.todayCount()} ใบ)` : '🥠 ตั้งค่าเซียมซี', enabled: !!fortune, click: () => fortune && fortune.openSettings() },
     { type: 'separator' },
     { label: '🔄 ตรวจสอบอัปเดต', click: () => {
       manualUpdateCheck = true;
@@ -299,6 +302,28 @@ function exitMiniMode() {
   isTransitioning = false;
 }
 
+function startFortune() {
+  try {
+    fortune = fortuneModule.create({
+      app, BrowserWindow, ipcMain, Notification,
+      buildEscPosRaster,
+      sendRaw: (buf, printerName) => sendRawToPrinter(buf, printerName),
+      getDefaultPrinterName: async () => {
+        const printers = await mainWindow.webContents.getPrintersAsync();
+        const t = printers.find((x) => x.isDefault) || printers[0];
+        return t ? t.name : '';
+      },
+      onStatsChange: () => refreshTrayMenu()
+    });
+    fortune.start();
+    refreshTrayMenu();
+  } catch (err) {
+    // บั๊กในโมดูลเซียมซีต้องไม่กระทบ POS Hero
+    console.error('fortune module failed to start:', err);
+    fortune = null;
+  }
+}
+
 app.whenReady().then(() => {
   // frame:false hides the default menu bar visually, but Electron still
   // attaches it (and its default accelerators — F11 fullscreen, Ctrl+R
@@ -317,6 +342,7 @@ app.whenReady().then(() => {
   lastMiniPosition = loadMiniPosition();
   createWindow();
   createTray();
+  startFortune();
   startRelayServer();
   startNetworkWatcher();
 
@@ -410,7 +436,8 @@ app.on('window-all-closed', () => {
 // exactly as many dot-rows as the image actually has and nothing more.
 const RECEIPT_DOT_WIDTH = 576; // 72mm printable width (80mm roll - 4mm margins/side) at 203dpi; /8 = 72 exactly, so byte-aligned with no partial-byte row padding
 
-function buildEscPosRaster(bitmapBGRA, widthPx, heightPx) {
+function buildEscPosRaster(bitmapBGRA, widthPx, heightPx, opts = {}) {
+  // opts.init === false omits ESC @ (ใช้ตอนพิมพ์ต่อท้ายงานที่ค้างอยู่บนกระดาษ — fortune/); ค่าเริ่มต้นไบต์เท่าเดิมทุกไบต์
   const bytesPerRow = Math.ceil(widthPx / 8);
   // Bands of 256 dot-rows mirror how the OEM driver's own raster output was
   // structured (observed while diagnosing the page-size bug) — keeps each
@@ -422,7 +449,7 @@ function buildEscPosRaster(bitmapBGRA, widthPx, heightPx) {
   // reliably split those two, not handle real grayscale/anti-aliased input.
   const LUMINANCE_THRESHOLD = 160;
 
-  const chunks = [Buffer.from([0x1b, 0x40])]; // ESC @ — initialize printer
+  const chunks = opts.init === false ? [] : [Buffer.from([0x1b, 0x40])]; // ESC @ — initialize printer
 
   for (let bandStart = 0; bandStart < heightPx; bandStart += BAND_HEIGHT) {
     const bandHeight = Math.min(BAND_HEIGHT, heightPx - bandStart);
@@ -488,10 +515,38 @@ function stitchSlices(slices) {
   return nativeImage.createFromBitmap(out, { width, height });
 }
 
+// ส่งไบต์ ESC/POS ดิบเข้าเครื่องพิมพ์ผ่าน build/raw-print.ps1 (ชื่องาน "POS Hero Receipt")
+// printerName ว่าง = เครื่องพิมพ์ default ของ Windows (เหมือนเดิม) — ใช้ร่วมกันระหว่างใบเสร็จกับ fortune/
+async function sendRawToPrinter(escpos, printerName) {
+  const tmpFile = path.join(os.tmpdir(), `pos-hero-receipt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.bin`);
+  try {
+    fs.writeFileSync(tmpFile, escpos);
+    let name = printerName;
+    if (!name) {
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      const target = printers.find((p) => p.isDefault) || printers[0];
+      if (!target) return { success: false, reason: 'ไม่พบเครื่องพิมพ์ในระบบ' };
+      name = target.name;
+    }
+    const scriptPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'raw-print.ps1')
+      : path.join(__dirname, 'build', 'raw-print.ps1');
+    return await new Promise((resolve) => {
+      execFile('powershell.exe', [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+        '-PrinterName', name, '-FilePath', tmpFile
+      ], { windowsHide: true }, (error, _stdout, stderr) => {
+        resolve(error ? { success: false, reason: (stderr || error.message).trim() } : { success: true, reason: '' });
+      });
+    });
+  } finally {
+    fs.unlink(tmpFile, () => {});
+  }
+}
+
 ipcMain.handle('print:raw', async (_event, arg) => {
   if (!mainWindow) return { success: false, reason: 'no window' };
 
-  let tmpFile;
   try {
     let captured;
     if (arg && typeof arg.jobId === 'string') {
@@ -511,29 +566,9 @@ ipcMain.handle('print:raw', async (_event, arg) => {
     const size = resized.getSize();
     const escpos = buildEscPosRaster(resized.toBitmap(), size.width, size.height);
 
-    tmpFile = path.join(os.tmpdir(), `pos-hero-receipt-${Date.now()}.bin`);
-    fs.writeFileSync(tmpFile, escpos);
-
-    const printers = await mainWindow.webContents.getPrintersAsync();
-    const target = printers.find((p) => p.isDefault) || printers[0];
-    if (!target) return { success: false, reason: 'ไม่พบเครื่องพิมพ์ในระบบ' };
-
-    const scriptPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'raw-print.ps1')
-      : path.join(__dirname, 'build', 'raw-print.ps1');
-
-    return await new Promise((resolve) => {
-      execFile('powershell.exe', [
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
-        '-PrinterName', target.name, '-FilePath', tmpFile
-      ], { windowsHide: true }, (error, _stdout, stderr) => {
-        resolve(error ? { success: false, reason: (stderr || error.message).trim() } : { success: true, reason: '' });
-      });
-    });
+    return await sendRawToPrinter(escpos);
   } catch (err) {
     return { success: false, reason: err && err.message ? err.message : String(err) };
-  } finally {
-    if (tmpFile) fs.unlink(tmpFile, () => {});
   }
 });
 
