@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('heroWindow', {
   collapseReady: () => ipcRenderer.send('window:collapse-ready'),
   setBackgroundColor: (hex) => ipcRenderer.send('ui:bg-color', hex),
   openFortuneSettings: () => ipcRenderer.send("fortune:open"),
+  openFortuneAmount: () => ipcRenderer.send("fortune:open-amount"),
   rawPrint: (rect) => ipcRenderer.invoke('print:raw', rect),
   printCaptureSlice: (jobId, rect) => ipcRenderer.invoke('print:capture-slice', { jobId, rect })
 });

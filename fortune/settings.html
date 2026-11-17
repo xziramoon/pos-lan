@@ -28,23 +28,45 @@
   <div class="two"><div class="f"><span>วันเริ่ม</span><input type="date" id="startDate"></div><div class="f"><span>วันจบ</span><input type="date" id="endDate"></div></div>
   <div class="f"><span>บรรทัดท้ายใบ</span><input type="text" id="footer"></div>
 </div>
+<div class="card">
+  <label class="row"><input type="checkbox" id="couponEnabled"><div>คูปองส่วนลดตามยอดต่อท้ายเซียมซี<small>แคชเชียร์กรอกยอดบิลที่หน้าต่าง "🧾 ยอดบิล" (เมนูถาด) ก่อนบิลพิมพ์จบ · ไม่ได้กรอก = เซียมซีธรรมดา</small></div></label>
+  <div class="f"><span>ขั้นยอด:ส่วนลด% (คั่นแต่ละขั้นด้วย ; ) เช่น 500:5; 1000:10 = ยอดตั้งแต่ 500 ลด 5% · ตั้งแต่ 1000 ลด 10%</span><input type="text" id="couponTiers"></div>
+  <div class="two"><div class="f"><span>อายุคูปอง (วัน)</span><input type="text" id="couponValidDays" inputmode="numeric"></div><div class="f"><span>ตัวนำหน้ารหัส (A-Z/0-9 ไม่เกิน 4 ตัว)</span><input type="text" id="couponPrefix" maxlength="4"></div></div>
+  <div class="f"><span>ตรวจรหัสคูปอง</span><div style="display:flex;gap:8px"><input type="text" id="chkCode" style="flex:1" placeholder="เช่น SH-ABC234"><button id="chk" style="background:#475569">ตรวจ</button><button id="useBtn" style="background:#b45309" disabled>ทำเครื่องหมายว่าใช้แล้ว</button></div><div id="chkMsg" style="font-size:14px;min-height:20px"></div></div>
+</div>
 <div style="display:flex;gap:8px"><button id="save">บันทึก</button><button id="test" style="background:#475569">ทดลองพิมพ์เซียมซี</button></div>
 <div id="msg"></div>
 <script>
 const $=(id)=>document.getElementById(id);
-const BOOL=['enabled','slipEnabled','showChinese','showThaiPoem','recordOnly'],TXT=['docFilter','startDate','endDate','footer'];
+const BOOL=['enabled','slipEnabled','showChinese','showThaiPoem','recordOnly','couponEnabled'],TXT=['docFilter','startDate','endDate','footer','couponPrefix'];
+const tiersToText=(t)=>(t||[]).map(x=>x.min+':'+x.percent).join('; ');
+const textToTiers=(s)=>String(s||'').split(/[;\n]/).map(p=>p.trim().split(':')).filter(a=>a.length===2).map(a=>({min:Number(a[0].replace(/[^0-9.]/g,'')),percent:Number(a[1].replace(/[^0-9.]/g,''))}));
 async function load(){
   const [{settings:s,today,total,cached},printers]=await Promise.all([fortuneApi.get(),fortuneApi.printers()]);
   $('stat').textContent='วันนี้พิมพ์แล้ว '+today+' ใบ · ข้อมูล '+total+' ใบ · เรนเดอร์ไว้แล้ว '+cached;
-  BOOL.forEach(k=>$(k).checked=!!s[k]); $('excludeLow').checked=!s.includeLow; TXT.forEach(k=>$(k).value=s[k]||'');
+  BOOL.forEach(k=>$(k).checked=!!s[k]); $('excludeLow').checked=!s.includeLow; TXT.forEach(k=>$(k).value=s[k]||''); $('couponTiers').value=tiersToText(s.couponTiers); $('couponValidDays').value=s.couponValidDays||30;
   const sel=$('printerName'); sel.innerHTML='';
   const names=[''].concat(printers); if(s.printerName&&!printers.includes(s.printerName)) names.push(s.printerName);
   names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n||'(เครื่อง default ของ Windows)';sel.appendChild(o)});
   sel.value=s.printerName||'';
 }
-function collect(){const p={printerName:$('printerName').value,includeLow:!$('excludeLow').checked};BOOL.forEach(k=>p[k]=$(k).checked);TXT.forEach(k=>p[k]=$(k).value);return p}
+function collect(){const p={printerName:$('printerName').value,includeLow:!$('excludeLow').checked};BOOL.forEach(k=>p[k]=$(k).checked);TXT.forEach(k=>p[k]=$(k).value);p.couponTiers=textToTiers($('couponTiers').value);p.couponValidDays=Number($('couponValidDays').value)||30;return p}
 $('save').onclick=async()=>{await fortuneApi.set(collect());$('msg').textContent='บันทึกแล้ว';load()};
 $('test').onclick=async()=>{$('test').disabled=true;$('msg').textContent='กำลังพิมพ์…';await fortuneApi.set(collect());
   const r=await fortuneApi.test();$('msg').textContent=r.success?'ส่งเข้าเครื่องพิมพ์แล้ว':'ไม่สำเร็จ: '+r.reason;$('test').disabled=false;load()};
+const ST={valid:['ใช้ได้','#15803d'],used:['ใช้ไปแล้ว','#b91c1c'],expired:['หมดอายุแล้ว','#b91c1c'],notfound:['ไม่พบรหัสนี้ในเครื่องนี้','#b91c1c']};
+const thDate=(t)=>{const d=new Date(t);return d.getDate()+'/'+(d.getMonth()+1)+'/'+(d.getFullYear()+543)};
+$('chk').onclick=async()=>{
+  const r=await fortuneApi.couponCheck($('chkCode').value);const m=$('chkMsg');$('useBtn').disabled=true;
+  if(!r.ok){m.style.color='#b91c1c';m.textContent=r.reason||'ตรวจไม่สำเร็จ';return}
+  const [t,c]=ST[r.status]||['?','#b91c1c'];m.style.color=c;
+  m.textContent=t+(r.coupon?' · ลด '+r.coupon.percent+'% · ออกเมื่อ '+thDate(r.coupon.issuedAt)+' · หมดอายุ '+thDate(r.coupon.expiresAt)+(r.coupon.usedAt?' · ใช้เมื่อ '+thDate(r.coupon.usedAt):''):'');
+  $('useBtn').disabled=r.status!=='valid';
+};
+$('useBtn').onclick=async()=>{
+  const r=await fortuneApi.couponUse($('chkCode').value);const m=$('chkMsg');$('useBtn').disabled=true;
+  m.style.color=r.status==='marked'?'#15803d':'#b91c1c';
+  m.textContent=r.status==='marked'?'บันทึกแล้ว: คูปองนี้ถูกใช้แล้ว':(r.reason||'ทำเครื่องหมายไม่ได้ ('+r.status+')');
+};
 load();
 </script></body></html>

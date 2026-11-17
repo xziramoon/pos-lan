@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  body{margin:0;padding:12px 14px;font-family:'Sarabun','Leelawadee UI','Tahoma',sans-serif;background:#fff7ed;color:#1f2937}
+  h1{font-size:15px;margin:0 0 8px}
+  input{width:100%;box-sizing:border-box;font-size:28px;font-weight:700;padding:6px 10px;border:2px solid #fb923c;border-radius:8px;text-align:right}
+  .row{display:flex;gap:8px;margin-top:8px}
+  button{flex:1;font-size:15px;padding:7px;border:0;border-radius:8px;cursor:pointer;color:#fff;background:#ea580c;font-family:inherit}
+  button.g{background:#64748b}
+  #st{margin-top:10px;font-size:15px;min-height:42px;line-height:1.35}
+  .ok{color:#15803d;font-weight:700}.warn{color:#b45309}.err{color:#b91c1c}
+</style></head><body>
+<h1>🧾 ยอดบิลสำหรับคูปอง</h1>
+<input id="amt" inputmode="decimal" autocomplete="off" placeholder="กรอกยอด แล้วกด Enter">
+<div class="row"><button id="ok">ตั้งยอด</button><button id="clr" class="g">ล้าง</button></div>
+<div id="st">กำลังโหลด…</div>
+<script>
+const $=(id)=>document.getElementById(id);
+const fmt=(n)=>Number(n).toLocaleString('th-TH',{maximumFractionDigits:2});
+let msg=''; // ข้อความ error ชั่วคราว
+function render(i){
+  const st=$('st');
+  if(!i.couponEnabled){st.className='warn';st.textContent='ระบบคูปองปิดอยู่ — เปิดได้ที่ ตั้งค่าเซียมซี';return}
+  if(msg){st.className='err';st.textContent=msg;return}
+  if(i.amount==null){st.className='';st.textContent='ยังไม่มียอดรอ — บิลถัดไปจะได้เซียมซีธรรมดา'+(i.tiers.length?' · ขั้นต่ำ '+fmt(i.tiers[0].min)+' บาท':'');return}
+  const m=Math.ceil(i.remainingMs/60000);
+  st.className=i.percent?'ok':'warn';
+  st.textContent='ยอดรอ '+fmt(i.amount)+' บาท · '+(i.percent?'จะได้คูปองลด '+i.percent+'%':'ยังไม่ถึงขั้นแรก (ไม่ออกคูปอง)')+' · เหลือ '+m+' นาที (ใช้กับบิลถัดไปบิลเดียว)';
+}
+async function refresh(){try{render(await amountApi.get())}catch(e){$('st').textContent='อ่านสถานะไม่ได้'}}
+async function submit(){
+  const r=await amountApi.set($('amt').value);
+  if(!r.ok){msg=r.reason||'ตั้งยอดไม่สำเร็จ';setTimeout(()=>{msg='';refresh()},3000)}else{msg='';$('amt').value=''}
+  refresh();
+}
+$('amt').addEventListener('keydown',e=>{if(e.key==='Enter')submit()});
+$('ok').onclick=submit;
+$('clr').onclick=async()=>{await amountApi.clear();msg='';$('amt').value='';refresh();$('amt').focus()};
+refresh();setInterval(refresh,1000);$('amt').focus();
+</script></body></html>

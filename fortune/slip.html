@@ -11,6 +11,9 @@
   .meaning{font-size:23px;line-height:1.35;text-align:left;margin-top:8px}
   .fin{font-size:23px;line-height:1.35;text-align:left;margin-top:2px}
   .foot{font-size:22px;margin-top:8px}
+  .cp-big{font-size:76px;line-height:1.1;margin:4px 0}
+  .cp-code{font-size:42px;letter-spacing:5px;border:4px solid #000;border-radius:10px;padding:6px 8px;margin:8px 24px;font-family:Consolas,'Courier New',monospace}
+  .cp-note{font-size:23px;line-height:1.4}
 </style></head>
 <body><div id="slip"></div>
 <script>
@@ -29,6 +32,18 @@ function render(f, n, footer, opts){
     '<div class="meaning">สรุปง่ายๆ: '+esc(f[2])+'</div>'+
     '<div class="fin">การเงิน: '+esc(f[3])+'</div>'+
     (footer?'<div class="foot">'+esc(footer)+'</div>':'');
+  return document.getElementById('slip').getBoundingClientRect().height;
+}
+// c = {percent, code ("SH-ABC234"), expires ("วว/ดด/ปปปป" พ.ศ.)}
+function renderCoupon(c){
+  document.getElementById('slip').innerHTML =
+    '<div class="cut">- - - - - - - - - - - - - -</div>'+
+    '<div class="title">คูปองส่วนลด</div>'+
+    '<div class="cp-big">ลด '+esc(c.percent)+'%</div>'+
+    '<div class="cp-note">ใช้ได้ครั้งเดียว สำหรับการซื้อครั้งหน้า</div>'+
+    '<div class="cp-code">'+esc(c.code)+'</div>'+
+    '<div class="cp-note">หมดอายุ '+esc(c.expires)+'</div>'+
+    '<div class="cp-note">ยื่นคูปองนี้ให้พนักงานก่อนชำระเงิน</div>';
   return document.getElementById('slip').getBoundingClientRect().height;
 }
 </script></body></html>

@@ -198,6 +198,7 @@ function refreshTrayMenu() {
     { type: 'separator' },
     { label: '📱 ข้อมูลเชื่อมต่อมือถือ (IP/Token)', click: () => showRelayInfoDialog() },
     { label: fortune ? `🥠 ตั้งค่าเซียมซี (วันนี้ ${fortune.todayCount()} ใบ)` : '🥠 ตั้งค่าเซียมซี', enabled: !!fortune, click: () => fortune && fortune.openSettings() },
+    { label: '🧾 ยอดบิล (คูปอง)', enabled: !!fortune, click: () => { try { fortune && fortune.openAmount(); } catch (e) { console.error(e); } } },
     { type: 'separator' },
     { label: '🔄 ตรวจสอบอัปเดต', click: () => {
       manualUpdateCheck = true;
@@ -319,6 +320,7 @@ function startFortune() {
     });
     fortune.start();
     ipcMain.on('fortune:open', () => { try { fortune && fortune.openSettings(); } catch (e) { console.error(e); } });
+    ipcMain.on('fortune:open-amount', () => { try { fortune && fortune.openAmount(); } catch (e) { console.error(e); } });
     refreshTrayMenu();
   } catch (err) {
     // บั๊กในโมดูลเซียมซีต้องไม่กระทบ POS Hero

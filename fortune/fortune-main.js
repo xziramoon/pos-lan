@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+let coupon = null; // คูปองพังต้องไม่ทำให้เซียมซี/การตัดกระดาษพัง — โหลดไม่ได้ = ไม่มีคูปอง
+try { coupon = require('./coupon-core'); } catch (e) { console.error('coupon-core failed to load:', e); }
 
 const SLIP_WIDTH = 576;
 const OWN_JOB = /pos hero receipt/i;       // งานที่ POS Hero ส่งเอง (ตัดกระดาษในตัวอยู่แล้ว)
@@ -24,7 +26,11 @@ const DEFAULTS = {
   docFilter: 'Sea & Hill', // ชื่อเอกสารที่มีข้อความนี้ = ใบเสร็จที่ได้เซียมซี (ไม่สนตัวพิมพ์เล็กใหญ่)
   startDate: '',         // YYYY-MM-DD ว่าง = ไม่จำกัด
   endDate: '',
-  footer: 'สวัสดีปีใหม่ 2570 · อึ้งลักเส็ง 黄六盛'
+  footer: 'สวัสดีปีใหม่ 2570 · อึ้งลักเส็ง 黄六盛',
+  couponEnabled: false,  // คูปองส่วนลดตามยอดต่อท้ายเซียมซี (ต้องกรอกยอดบิลที่หน้าต่าง "ยอดบิล") — ปิดเป็นค่าเริ่มต้น
+  couponTiers: [{ min: 500, percent: 5 }, { min: 1000, percent: 10 }], // [{min: ยอดขั้นต่ำ, percent: ส่วนลด%}] ตัวอย่างตั้งต้น แก้ในหน้าตั้งค่า
+  couponValidDays: 30,   // อายุคูปอง (วัน) นับจากวันที่ออก หมดอายุสิ้นวัน
+  couponPrefix: 'SH'     // ตัวอักษรนำหน้ารหัส (A-Z/0-9 สูงสุด 4 ตัว)
 };
 
 function localDate(d = new Date()) {
@@ -56,6 +62,10 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
   const seen = [];
   let sendChain = Promise.resolve();
   let settingsWin = null;
+  let amountWin = null;
+  const pending = coupon ? coupon.createPending() : null;   // ยอดบิลที่แคชเชียร์กรอกรอบิลถัดไป
+  let couponStore = null;
+  try { if (coupon) couponStore = coupon.createCouponStore({ file: path.join(userData, 'fortune-coupons.json') }); } catch (e) { couponStore = null; }
 
   function log(msg) {
     try { fs.appendFileSync(logPath, `${new Date().toISOString()} ${msg}\n`); } catch (e) { /* ignore */ }
@@ -120,6 +130,37 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
     return job;
   }
 
+  // ---------- คูปองส่วนลด ----------
+  // เรนเดอร์ใบคูปองต่อใบ (ไม่เข้า slipCache เพราะมีรหัสไม่ซ้ำกัน) ปิดท้ายด้วย ESC d 2 + GS V 65 0 เหมือนใบเซียมซี
+  function renderCoupon(c) {
+    const job = renderChain.then(async () => {
+      const win = await ensureRenderWin();
+      const wc = win.webContents;
+      const h = await wc.executeJavaScript(`renderCoupon(${JSON.stringify(c)})`);
+      const height = Math.max(40, Math.ceil(h) + 2);
+      win.setContentSize(SLIP_WIDTH, height);
+      await new Promise((r) => setTimeout(r, 30));
+      const img = await wc.capturePage({ x: 0, y: 0, width: SLIP_WIDTH, height });
+      const sized = img.getSize().width === SLIP_WIDTH ? img : img.resize({ width: SLIP_WIDTH, quality: 'best' });
+      const s = sized.getSize();
+      return buildEscPosRaster(sized.toBitmap(), s.width, s.height, { init: false });
+    });
+    renderChain = job.catch(() => {});
+    return job;
+  }
+
+  // ใช้ยอดค้าง (ครั้งเดียว) → เลือกขั้น → สร้างรหัส + เรนเดอร์; ไม่ออกคูปอง = null (ไม่ throw ออกไปนอกฟังก์ชันนี้ถ้าเรียกผ่าน try)
+  async function buildCoupon() {
+    if (!coupon || !couponStore || !pending || !settings.couponEnabled) return null;
+    const amount = pending.take();
+    if (amount == null) { log('coupon: no pending amount, plain slip'); return null; }
+    const tier = coupon.pickTier(settings.couponTiers, amount);
+    if (!tier) { log('coupon: amount below first tier, plain slip'); return null; }
+    const record = couponStore.mint({ amount, percent: tier.percent, prefix: settings.couponPrefix, validDays: settings.couponValidDays });
+    const buf = await renderCoupon({ percent: record.percent, code: coupon.displayCode(record.code), expires: coupon.thaiDate(record.expiresAt) });
+    return { record, buf };
+  }
+
   async function prerenderAll() {
     for (const i of allowedIndexes()) {
       try { await renderSlip(i); } catch (e) { log('prerender ' + i + ': ' + e.message); }
@@ -173,10 +214,24 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
           const idx = pickIndex();
           if (idx < 0) throw new Error('no fortunes');
           const slip = await renderSlip(idx);
-          const r = await sendRaw(slip, name);
+          let out = slip, minted = null;
+          try {
+            // คูปองต่อท้ายเซียมซี: ตัดคำสั่งตัดท้ายใบเซียมซีออก แล้วให้ใบคูปองเป็นตัวปิดท้าย+ตัด
+            // พลาดตรงไหน = พิมพ์เซียมซีเดิม (มีคำสั่งตัดอยู่แล้ว) ใบเสร็จต้องถูกตัดเสมอ
+            if (slip.length > ESC_FEED_CUT.length && slip.subarray(slip.length - ESC_FEED_CUT.length).equals(ESC_FEED_CUT)) {
+              minted = await buildCoupon();
+              if (minted) out = Buffer.concat([slip.subarray(0, slip.length - ESC_FEED_CUT.length), minted.buf]);
+            }
+          } catch (e) { log('coupon skipped: ' + e.message); minted = null; out = slip; }
+          const r = await sendRaw(out, name);
           if (!r.success) throw new Error(r.reason);
           bumpCount();
           log(`slip #${idx + 1} after job ${ev.id} "${ev.doc}"`);
+          if (minted) {
+            const saved = couponStore.commit(minted.record);
+            log(`coupon ${minted.record.percent}% issued ${coupon.displayCode(minted.record.code)}${saved ? '' : ' (SAVE FAILED)'}`);
+            if (!saved) notify('บันทึกคูปองไม่สำเร็จ', 'คูปองถูกพิมพ์แล้วแต่ตรวจรหัสในเครื่องนี้ไม่ได้ — จดรหัส ' + coupon.displayCode(minted.record.code));
+          }
           return;
         } catch (e) {
           log('slip failed, falling back to cut only: ' + e.message);
@@ -264,7 +319,7 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
   function openSettings() {
     if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); return; }
     settingsWin = new BrowserWindow({
-      width: 460, height: 700, title: 'ตั้งค่าเซียมซี', autoHideMenuBar: true, minimizable: false,
+      width: 480, height: 840, title: 'ตั้งค่าเซียมซี', autoHideMenuBar: true, minimizable: false,
       webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, nodeIntegration: false }
     });
     settingsWin.setMenu(null);
@@ -272,13 +327,68 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
     settingsWin.on('closed', () => { settingsWin = null; });
   }
 
+  // หน้าต่างเล็กลอยค้างสำหรับกรอกยอดบิล (แคชเชียร์พิมพ์ยอด → Enter → ใช้กับใบเสร็จถัดไปครั้งเดียว)
+  function openAmount() {
+    if (amountWin && !amountWin.isDestroyed()) { amountWin.show(); amountWin.focus(); return; }
+    amountWin = new BrowserWindow({
+      width: 320, height: 250, title: 'ยอดบิล (คูปอง)', autoHideMenuBar: true, minimizable: false, maximizable: false, resizable: false,
+      alwaysOnTop: true,
+      webPreferences: { preload: path.join(__dirname, 'amount-preload.js'), contextIsolation: true, nodeIntegration: false }
+    });
+    amountWin.setMenu(null);
+    amountWin.setAlwaysOnTop(true, 'floating');
+    try {
+      const { screen } = require('electron');
+      const wa = screen.getPrimaryDisplay().workArea;
+      amountWin.setPosition(wa.x + wa.width - 340, wa.y + wa.height - 270);
+    } catch (e) { /* ใช้ตำแหน่งตั้งต้น */ }
+    amountWin.loadFile(path.join(__dirname, 'amount.html'));
+    amountWin.on('closed', () => { amountWin = null; });
+  }
+
+  function amountInfo() {
+    const amount = pending ? pending.peek() : null;
+    const tier = amount != null && coupon ? coupon.pickTier(settings.couponTiers, amount) : null;
+    return {
+      couponEnabled: !!settings.couponEnabled && !!coupon && !!couponStore,
+      amount, remainingMs: pending ? pending.remainingMs() : 0,
+      percent: tier ? tier.percent : null,
+      tiers: coupon ? coupon.normalizeTiers(settings.couponTiers) : []
+    };
+  }
+
+  function registerCouponIpc() {
+    ipcMain.handle('fortune:amount-get', () => { try { return amountInfo(); } catch (e) { return { couponEnabled: false, amount: null, remainingMs: 0, percent: null, tiers: [] }; } });
+    ipcMain.handle('fortune:amount-set', (_e, raw) => {
+      try {
+        if (!pending || !pending.set(raw)) return { ok: false, reason: 'ใส่ยอดเป็นตัวเลข เช่น 850 หรือ 1,250' };
+        return { ok: true, info: amountInfo() };
+      } catch (e) { return { ok: false, reason: e.message }; }
+    });
+    ipcMain.handle('fortune:amount-clear', () => { try { if (pending) pending.clear(); } catch (e) { /* ignore */ } return { ok: true }; });
+    ipcMain.handle('fortune:coupon-check', (_e, code) => {
+      try { return couponStore ? { ok: true, ...couponStore.check(code) } : { ok: false, reason: 'ระบบคูปองไม่พร้อมใช้งาน' }; } catch (e) { return { ok: false, reason: e.message }; }
+    });
+    ipcMain.handle('fortune:coupon-use', (_e, code) => {
+      try { return couponStore ? { ok: true, ...couponStore.markUsed(code) } : { ok: false, reason: 'ระบบคูปองไม่พร้อมใช้งาน' }; } catch (e) { return { ok: false, reason: e.message }; }
+    });
+    ipcMain.handle('fortune:coupon-recent', () => { try { return couponStore ? couponStore.recent(15) : []; } catch (e) { return []; } });
+  }
+
   function registerIpc() {
+    try { registerCouponIpc(); } catch (e) { log('coupon ipc: ' + e.message); }
     ipcMain.handle('fortune:get', () => ({ settings, today: todayCount(), total: fortunes.length, cached: slipCache.size }));
     ipcMain.handle('fortune:set', (_e, patch) => {
       const prevLow = settings.includeLow, prevFooter = settings.footer, prevLook = `${settings.showChinese}${settings.showThaiPoem}`;
       const next = { ...settings };
       for (const k of Object.keys(DEFAULTS)) {
         if (patch && k in patch && typeof patch[k] === typeof DEFAULTS[k]) next[k] = patch[k];
+      }
+      if (coupon) {
+        // ค่าคูปองที่ไม่ใช่ชนิดง่ายๆ ต้องตรวจเอง (ขั้น = array, วัน = จำนวนเต็ม 1–365, prefix = A-Z/0-9)
+        next.couponTiers = coupon.normalizeTiers(patch && 'couponTiers' in patch ? patch.couponTiers : settings.couponTiers);
+        next.couponValidDays = Math.min(365, Math.max(1, Math.floor(Number(next.couponValidDays)) || 30));
+        next.couponPrefix = coupon.sanitizePrefix(next.couponPrefix);
       }
       settings = next;
       saveJson(settingsPath, settings);
@@ -312,7 +422,7 @@ function create({ app, BrowserWindow, ipcMain, Notification, buildEscPosRaster, 
     if (settings.enabled && settings.slipEnabled) setTimeout(() => prerenderAll().catch(() => {}), 8000);
   }
 
-  return { start, openSettings, todayCount };
+  return { start, openSettings, openAmount, todayCount, _handleDone: handleDone, _pending: pending, _store: couponStore }; // _ = สำหรับ test เท่านั้น
 }
 
 module.exports = { create, DEFAULTS };

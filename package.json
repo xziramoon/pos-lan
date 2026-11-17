@@ -1,7 +1,7 @@
 {
   "name": "taskbar-pos-hero",
   "productName": "POS Hero",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "Thai POS reconciliation tool, reskinned as a taskbar-docked hero widget (inspired by TBH: Task Bar Hero)",
   "main": "main.js",
   "author": "xziramoon",
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "test": "node test/coupon-core.test.js && node test/fortune-coupon-flow.test.js",
     "dist": "electron-builder",
     "release": "electron-builder --publish always"
   },
